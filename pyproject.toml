@@ -1,22 +1,91 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+build-backend = "poetry.core.masonry.api"
+requires = [
+  "poetry-core",
+]
 
-[project]
+[tool.poetry]
 name = "exprlens"
-version = "0.0.1"
+version = "0.0.2"
 authors = [
-  { name="Piotr Mardziel", email="piotrm@gmail.com" },
+  "Piotr Mardziel <piotrm@gmail.com>"
 ]
 description = "Lenses from python expressions."
 readme = "README.md"
-requires-python = ">=3.7"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Artistic License",
     "Operating System :: OS Independent",
 ]
+license = "Artistic License"
+homepage = "https://github.com/piotrm0/exprlens"
+packages = [
+  { include = "exprlens", from = "src" },
+]
 
-[project.urls]
-"Homepage" = "https://github.com/piotrm0/exprlens"
-"Bug Tracker" = "https://github.com/piotrm0/exprlens/issues"
+[tool.poetry.dependencies]
+python = "^3.9"
+pydantic = "^2.0"
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = "^1.6"
+mkdocstrings-python = "^1.10"
+mkdocstrings = "^0.25"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.7"
+ruff = "^0.5"
+mypy = "^1.11"
+build = "^1.2"
+twine = "^5.1"
+ipykernel = "^6.29.5"
+
+[tool.poetry.group.tests]
+optional = true
+
+[tool.poetry.group.tests.dependencies]
+pytest = "^8.3"
+pytest-subtests = "^0.13"
+ruff = "^0.5"
+pre-commit = "^3.7"
+
+[tool.ruff]
+line-length = 80
+
+[tool.ruff.format]
+preview = true
+
+[tool.ruff.lint]
+preview = true
+ignore = [
+  "E731",
+]
+extend-select = [
+  "I",
+  "E303",
+]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+force-sort-within-sections = true
+single-line-exclusions = [
+  "typing",
+]
+known-first-party = [
+  "src",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = [
+  "tests",
+]
+
+[tool.mypy]
+files = [
+  "src",
+  "tests",
+]
+mypy_path = "src"
