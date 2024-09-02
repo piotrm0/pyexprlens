@@ -103,8 +103,3 @@ assert repr(plusone) == "(args[0] + 1)"
 assert plusone.pyast == parse(repr(plusone), mode="eval")
 assert plusone == Expr.of_string(repr(plusone))
 ```
-
-
-```python
-
-```
