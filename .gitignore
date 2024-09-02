@@ -5,3 +5,4 @@ __pycache__
 *.whl
 *.tar.gz
 site
+dist
