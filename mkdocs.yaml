@@ -1,0 +1,25 @@
+site_name: PyExprLens
+site_description: Lenses for Python Expressions
+
+repo_name: piotrm0/pyexprlens
+repo_url: https://github.com/piotrm0/pyexprlens
+
+watch:
+  - src
+
+plugins:
+  - mkdocs-jupyter:
+      include: ["*.ipynb"]
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          import:
+            - https://docs.python.org/3/objects.inv
+            - https://docs.pydantic.dev/latest/objects.inv
+            - https://typing-extensions.readthedocs.io/en/latest/objects.inv
+          paths:
+            - src
+
+nav:
+  - Home: README.ipynb

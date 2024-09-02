@@ -4,8 +4,24 @@ import abc
 import ast
 import copy
 import inspect
-from typing import Any, Callable, Dict, Generic, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    Generic,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+    Union,
+)
+
 import pydantic
+import typeguard
 
 A = TypeVar("A")
 B = TypeVar("B")
@@ -16,6 +32,17 @@ T = TypeVar("T")
 K = TypeVar("K")
 V = TypeVar("V")
 
+TypeLike = Any
+"""
+# having trouble with this to catch Sequence, Mapping, etc.
+typing.Union[
+    Type,
+    typing.TypeAlias,
+    typing.GenericAlias
+]
+"""
+
+LENS_SYMBOL = "@"
 
 def _make_binop(imp, sym):
     imp.__symbol__ = sym
@@ -38,16 +65,39 @@ def _make_unop(imp, sym):
     return func
 
 
-class Lens(abc.ABC, pydantic.BaseModel, Generic[A, B]):
-    obj_class: Optional[type] = pydantic.Field(None)
+class Model(pydantic.BaseModel):
+    model_config: ClassVar[pydantic.ConfigDict] = pydantic.ConfigDict(
+        arbitrary_types_allowed=True)
+
+
+class Lens(abc.ABC, Model, Generic[A, B]):
+    obj_class: Optional[TypeLike] = pydantic.Field(None)
+    key_class: Optional[TypeLike] = pydantic.Field(None)
 
     def _assert_obj(self, obj: A) -> None:
         if self.obj_class is not None:
-            if not isinstance(obj, self.obj_class):
-                raise ValueError(f"Expected {self.obj_class.__name__} at {str(self)}, got {type(obj).__name__}.")
+            try:
+                typeguard.check_type(obj, self.obj_class)
+            except typeguard.TypeCheckError as e:
+                raise ValueError(
+                    f"Expected `{self.obj_class.__name__}` at `{str(self)}`, got `{type(obj).__name__}`."
+                ) from e
 
+    def _assert_key(self, key: A) -> None:
+        if self.key_class is not None:
+            try:
+                typeguard.check_type(key, self.key_class)
+            except typeguard.TypeCheckError as e:
+                raise ValueError(
+                    f"Expected `{self.key_class.__name__}` for `{str(self)}` key, got `{type(key).__name__}`."
+                ) from e
+    
     def validated(self, obj_class: type) -> type:
-        return type(self.__class__.__name__ + "Validated", (self.__class__,), {"obj_class": obj_class, **self.model_dump()})
+        return type(self.__class__.__name__ + "Validated", (self.__class__, ),
+                    {
+                        "obj_class": obj_class,
+                        **self.model_dump()
+                    })
 
     @staticmethod
     def of_expr(expr: Union[str, ast.Expr]) -> Lens[A, B]:
@@ -59,11 +109,15 @@ class Lens(abc.ABC, pydantic.BaseModel, Generic[A, B]):
     def __len__(self) -> int:
         return 1
 
+    def __repr__(self) -> str:
+        return str(self)
+
     def __str__(self) -> str:
-        return "@" + self.__str_step__()
-    
+        return self.__str_step__()
+
     def __str_step__(self) -> str:
-        raise NotImplementedError(f"Step str not implemented for {self.__class__.__name__}.")
+        raise NotImplementedError(
+            f"Step str not implemented for {self.__class__.__name__}.")
 
     def __call__(self, *args, **kwargs) -> B:
         return self.get(*args, **kwargs)
@@ -78,10 +132,12 @@ class Lens(abc.ABC, pydantic.BaseModel, Generic[A, B]):
         raise ValueError("Ambiguous object.")
 
     def get(self, *args, **kwargs) -> B:
-        raise NotImplementedError(f"Get not implemented for {self.__class__.__name__}.")
+        raise NotImplementedError(
+            f"Get not implemented for {self.__class__.__name__}.")
 
     def set(self, *args, val: B, **kwargs) -> A:
-        raise NotImplementedError(f"Set not implemented for {self.__class__.__name__}.")
+        raise NotImplementedError(
+            f"Set not implemented for {self.__class__.__name__}.")
 
     def replace(self, *args, val: B, **kwargs) -> A:
         obj = self._get_only_input(args, kwargs)
@@ -120,7 +176,10 @@ class Lens(abc.ABC, pydantic.BaseModel, Generic[A, B]):
     __invert__ = _make_unop(lambda a: ~a, "~")
 
     def __getitem__(self: Lens[A, B], item: Union[slice, str,
-                                                  int]) -> Lens[A, B]:
+                                                  int]) -> Lens[A, C]:
+        
+        self._assert_key(item)
+        
         if isinstance(item, slice):
             outer: Lens[B, C] = SequenceSlice(item=_Slice.of_slice(item))
         elif isinstance(item, int):
@@ -138,7 +197,7 @@ class Lens(abc.ABC, pydantic.BaseModel, Generic[A, B]):
 
         return Seq(steps=[self, outer])
 
-    def __getattr__(self: Lens[T, R], attr: str) -> Lens[T, R]:
+    def __getattr__(self: Lens[A, B], attr: str) -> Lens[A, C]:
         outer = Attr(attr=attr)
 
         if isinstance(self, Ident):
@@ -150,7 +209,7 @@ class Lens(abc.ABC, pydantic.BaseModel, Generic[A, B]):
         return Seq(steps=[self, outer])
 
 
-class ArgsKwargs(pydantic.BaseModel):
+class ArgsKwargs(Model):
     args: Tuple
     kwargs: Dict[str, Any]
 
@@ -164,7 +223,6 @@ class ArgsKwargs(pydantic.BaseModel):
 
 
 class Ident(Lens[A, ArgsKwargs]):
-
     def __str_step__(self) -> str:
         return ""
 
@@ -176,35 +234,23 @@ class Ident(Lens[A, ArgsKwargs]):
 
 
 class Kwargs(Lens[A, Dict[str, B]]):
+    key_class: TypeLike = str
+
+    def __str_step__(self) -> str:
+        return "kwargs"
 
     def get(self, *args, **kwargs) -> Dict[str, B]:
         return kwargs
 
 
 class Args(Lens[A, Tuple[B, ...]]):
+    key_class: TypeLike = int
+
+    def __str_step__(self) -> str:
+        return "args"
 
     def get(self, *args, **kwargs) -> Tuple[B, ...]:
         return args
-
-
-class Kwarg(Lens[Dict[str, B], B]):
-    kwarg: str
-
-    def __init__(self, kwarg: str):
-        super().__init__(kwarg=kwarg)
-
-    def get(self, *args, **kwargs) -> B:
-        return kwargs[self.kwarg]
-
-
-class Arg(Lens[Tuple[B, ...], B]):
-    arg: int
-
-    def __init__(self, arg: int = 0):
-        super().__init__(arg=arg)
-
-    def get(self, *args, **kwargs) -> B:
-        return args[self.arg]
 
 
 class Seq(Lens[A, B]):
@@ -225,7 +271,11 @@ class Seq(Lens[A, B]):
         return sum(map(len, self.steps))
 
     def __str__(self) -> str:
-        return Lens().__str__() + "".join(map(lambda x: x.__str_step__(), self.steps))
+        return "".join(
+            map(lambda x: x.__str_step__(), self.steps))
+    
+    def __str_step__(self) -> str:
+        return str(self)
 
     def get(self, *args, **kwargs) -> B:
         if len(self.steps) == 0:
@@ -243,11 +293,21 @@ class Seq(Lens[A, B]):
         if len(steps) == 0:
             return val
         else:
-            return steps[0].set(obj=obj,
-                                val=Seq._set(steps[1:],
-                                             obj=steps[0].get(obj),
-                                             val=val))
-
+            old_obj = steps[0].get(obj)
+            new_obj = Seq._set(
+                steps[1:],
+                obj=old_obj,
+                val=val
+            )
+            if id(old_obj) != id(new_obj):
+                # Only set if a different object was returned. 
+                return steps[0].set(
+                    obj=obj,
+                    val=new_obj
+                )
+            else:
+                return obj
+            
     def set(self, obj: A, val: B) -> A:
         return Seq._set(self.steps, obj, val)
 
@@ -268,19 +328,19 @@ class Attr(Lens[A, B]):
     def set(self, obj: A, val: B) -> B:
         setattr(obj, self.attr, val)
         return obj
-    
+
 
 class Item(Lens[A, B], Generic[A, B, T]):
     item: T
 
     def __str_step__(self) -> str:
-        return f"[{str(self.item)}]"
+        return f"[{repr(self.item)}]"
 
     def get(self, *args, **kwargs) -> B:
         obj = self._get_only_input(args, kwargs)
 
         self._assert_obj(obj)
-            
+
         return obj[self.item]
 
     def set(self, obj: A, val: B) -> A:
@@ -291,8 +351,15 @@ class Item(Lens[A, B], Generic[A, B, T]):
         return obj
 
 
+class Kwarg(Item[Dict[str, B], B, str]):
+    pass
+
+class Arg(Item[Tuple[B, ...], B, int]):
+    pass
+
 class SequenceIndex(Item[Sequence[B], B, int]):
-    obj_class: Type = Sequence
+    obj_class: TypeLike = Sequence[B]
+
 
 class _Slice(pydantic.BaseModel):
     start: Optional[int] = None
@@ -311,7 +378,7 @@ class _Slice(pydantic.BaseModel):
 
 
 class SequenceSlice(Item[Sequence[B], B, _Slice]):
-    obj_class: Type = Sequence
+    obj_class: TypeLike = Sequence[B]
 
     def get(self, *args, **kwargs) -> B:
         obj: Sequence[B] = self._get_only_input(args, kwargs)
@@ -321,12 +388,13 @@ class SequenceSlice(Item[Sequence[B], B, _Slice]):
         obj[self.item.to_slice()] = val
         return obj
 
+
 class MappingValue(Item[Mapping[A, B], B, B]):
-    obj_class: Type = Mapping
-    
+    obj_class: TypeLike = Mapping[A, B]
+
 
 class MappingKey(Item[Mapping[A, B], B, A]):
-    obj_class: Type = Mapping
+    obj_class: TypeLike = Mapping
 
     def get(self, *args, **kwargs) -> A:
         return self.item
@@ -337,6 +405,7 @@ class MappingKey(Item[Mapping[A, B], B, A]):
 
 
 class Expr(Lens[A, B]):
+
     def __str__(self) -> str:
         return self.__str_step__()
 

@@ -1,5 +1,17 @@
-dist: LICENSE Makefile README.md pyproject.toml src tests
+dist: LICENSE Makefile README.md pyproject.toml src
 	poetry build
+
+env:
+	poetry install
+
+dev-env:
+	poetry install --with dev
+
+test-env:
+	poetry install --with tests
+
+doc-env:
+	poetry install --with docs
 
 # Run the ruff linter.
 lint:
@@ -8,8 +20,22 @@ lint:
 lock:
 	poetry lock
 
+README.md: docs/README.ipynb
+	poetry run jupyter nbconvert --to markdown docs/README.ipynb --output ../README.md
+
+# Documentation
+docs: doc-env
+	poetry run mkdocs build
+
+docs-serve: doc-env
+	poetry run mkdocs serve
+
+# Test
+test: test-env
+	poetry run python -m pytest tests/*.py
+
 # Run the ruff formatter.
-format:
+format: dev-env
 	poetry run ruff format
 
 precommit-hooks:

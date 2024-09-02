@@ -1,4 +1,4 @@
-# Python Expression Lenses (exprlens)
+# Python Expression Lenses
 
 Python expressions to/from lenses. This library focuses on constructing lenses
 from python expressions, targeting function bindings as the primary container to
@@ -14,48 +14,65 @@ This package has very specific goals which are not considerations in the theory 
 - [pylens](https://pythonhosted.org/pylens/) - simpler
 - [simplelens](https://pypi.org/project/simplelens/) - unknown functionality
 
-## Basic Usage
+## Basic usage
+
 
 ```python
 from exprlens import arg
 
-first = arg[0] # lens for getting the first item in the first argument from a call
+# Lens for getting the first item in the first argument from a call:
+first = arg[0]  
 
 # Getter can be accessed using the `get` method or by calling (`__call__`):
-assert first.get([0,1,2,3]) == first([0,1,2,3]) == 0
+assert first.get([0, 1, 2, 3]) == first([0, 1, 2, 3]) == 0
 
-# Setter can be accessed using the `set` method:
-assert first.set([0,1,2,3], val=42) == [42, 1, 2, 3]
-
-# Setters mutate the input:
-l = [0,1,2,3]
-first.set(l, val=42)
-assert l == [42, 1, 2, 3]
-
-# Setters fail if the given object is not mutable:
-first.set((0,1,2,3), val=42) # error
-
-# Non-mutable version of `set` is `replace`:
-assert first.replace((0,1,2,3), val=42) == (42, 1, 2, 3)
-
-# Replace does not modify the given object:
-l = [0,1,2,3]
-first.replace(l, val=42)
-assert l == [0, 1, 2, 3]
+# Setter can be accessed using the `set` method.
+assert first.set([0, 1, 2, 3], val=42) == [42, 1, 2, 3]
 ```
 
 ## Expressions
+
+
 ```python
-# lens that first grabs the first two items in the first argument and adds them:
-plusfirsts = arg[0] + arg[1] 
+from exprlens import arg
 
-assert plusfirsts([1,2,3,4]) == 3
+# Lens that first grabs the first two items in the first argument and adds them:
+plusfirsts = arg[0] + arg[1]  
 
-# Note that arithmetic expression (plus here) lenses do not allow `set` to be used on them.
-plusfirsts.set([1,2,3,4], val=42) # error
+# Note that once expression lenses are constructed, `set` can no longer be used on them.
+# plusfirsts.set([1, 2, 3, 4], val=42)  # Raises an exception.
+
+assert plusfirsts([1, 2, 3, 4]) == 3
+
+# Literals/constants: Expression lenses can involve literals/constants.
+plusone = arg + 1
+assert list(map(plusone, [1, 2, 3])) == [2, 3, 4]
 ```
 
-### Boolean expressions
+## Validation
+
+
+```python
+from exprlens import args, kwargs
+
+# Lenses can be validate on construction:
+args[0] # ok
+# args["something"] # error
+
+kwargs["something"] # ok
+# kwargs[0] # error
+
+# Lenses can be validated on use:
+
+# Lens that gets a key from the first argument, thus the first argument must be a mapping:
+firstkey = arg["something"]
+firstkey.get({"something": 42}) # ok
+
+# Will fail if the first argument is not a mapping:
+# firstkey.get([1,2,3]) # error
+```
+
+## Boolean expressions (TODO)
 
 Python does not allow overriding boolean operators (`and`, `or`, `not`) (see
 relevant [rejected PEP](https://peps.python.org/pep-0335/)) so lenses
@@ -66,26 +83,28 @@ construct these. Alternatively you can use `Expr.of_string` static method
 to construct it from python code, e.g. `Expr.of_string("lens[0] and
 lens[1]")`.
 
+
+
 ```python
+from exprlens import Expr, lens
+
 assert Expr.conjunction(lens[0], lens[1]) == Expr.of_string("lens[0] and lens[1]")
 ```
 
-## Constants
+## Serialization (TODO)
 
-Expression lenses can involve constants.
 
-```python
-plusone = arg + 1
-plusone(3) == 4
-```
-
-## Serialization
 ```python
 from exprlens import Expr
 from ast import parse
 
-assert repr(plusone) == "arg + 1"
+assert repr(plusone) == "(args[0] + 1)"
 
 assert plusone.pyast == parse(repr(plusone), mode="eval")
 assert plusone == Expr.of_string(repr(plusone))
+```
+
+
+```python
+
 ```
