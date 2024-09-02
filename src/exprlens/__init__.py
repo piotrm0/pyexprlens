@@ -1,3 +1,4 @@
+from .lens import ArgsKwargs
 from .lens import Attr
 from .lens import Binop
 from .lens import Expr
@@ -10,9 +11,12 @@ from .lens import Seq
 from .lens import SequenceIndex
 from .lens import SequenceSlice
 from .lens import Unop
+from .lens import all
 from .lens import arg
 from .lens import args
 from .lens import argskwargs
+from .lens import arguments
+from .lens import ident
 from .lens import kwargs
 from .lens import lens
 from .valid import ValidDict
@@ -30,11 +34,15 @@ __all__ = [
     "ValidSequence",
 
     # Common lenses
+    "all",
     "lens",
+    "ident",
     "argskwargs",
     "args",
     "arg",
     "kwargs",
+    "arguments",
+    "ArgsKwargs",
 
     # Lense classes
     "Ident",

@@ -6,7 +6,7 @@ requires = [
 
 [tool.poetry]
 name = "exprlens"
-version = "0.0.2"
+version = "0.0.3"
 authors = [
   "Piotr Mardziel <piotrm@gmail.com>"
 ]

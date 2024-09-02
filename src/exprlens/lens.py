@@ -44,6 +44,7 @@ typing.Union[
 
 LENS_SYMBOL = "@"
 
+
 def _make_binop(imp, sym):
     imp.__symbol__ = sym
 
@@ -91,7 +92,7 @@ class Lens(abc.ABC, Model, Generic[A, B]):
                 raise ValueError(
                     f"Expected `{self.key_class.__name__}` for `{str(self)}` key, got `{type(key).__name__}`."
                 ) from e
-    
+
     def validated(self, obj_class: type) -> type:
         return type(self.__class__.__name__ + "Validated", (self.__class__, ),
                     {
@@ -129,7 +130,7 @@ class Lens(abc.ABC, Model, Generic[A, B]):
         if len(args) == 0 and len(kwargs) == 1:
             return next(iter(kwargs.values()))
 
-        raise ValueError("Ambiguous object.")
+        raise ValueError(f"Ambiguous get from {len(args)} arg(s) and {len(kwargs)} kwarg(s).")
 
     def get(self, *args, **kwargs) -> B:
         raise NotImplementedError(
@@ -175,25 +176,37 @@ class Lens(abc.ABC, Model, Generic[A, B]):
     __abs__ = _make_unop(lambda a: abs(a), "abs")
     __invert__ = _make_unop(lambda a: ~a, "~")
 
-    def __getitem__(self: Lens[A, B], item: Union[slice, str,
-                                                  int]) -> Lens[A, C]:
-        
-        self._assert_key(item)
-        
-        if isinstance(item, slice):
-            outer: Lens[B, C] = SequenceSlice(item=_Slice.of_slice(item))
-        elif isinstance(item, int):
-            outer: Lens[B, C] = SequenceIndex(item=item)
-        elif isinstance(item, str):
-            outer: Lens[B, C] = MappingValue(item=item)
+    def __getitem__(self: Lens[A, B], item: Union[slice, str, int,
+                                                  Lens]) -> Lens[A, C]:
+
+        if isinstance(item, Lens):
+            outer = item
+
         else:
-            raise ValueError(f"Unsupported item type: {type(item)}")
+            self._assert_key(item)
+
+            if isinstance(item, slice):
+                outer: Lens[B, C] = SequenceSlice(item=_Slice.of_slice(item))
+            elif isinstance(item, int):
+                outer: Lens[B, C] = SequenceElement(item=item)
+            elif isinstance(item, str):
+                outer: Lens[B, C] = MappingValue(item=item)
+
+            else:
+                raise ValueError(f"Unsupported item type: {type(item)}")
 
         if isinstance(self, Ident):
             return outer
+        if isinstance(outer, Ident):
+            return self
 
         if isinstance(self, Seq):
-            return Seq(steps=self.steps + [outer])
+            if isinstance(outer, Seq):
+                return Seq(steps=self.steps + outer.steps)
+            else:
+                return Seq(steps=self.steps + [outer])
+        elif isinstance(outer, Seq):
+            return Seq(steps=[self] + outer.steps)
 
         return Seq(steps=[self, outer])
 
@@ -221,8 +234,7 @@ class ArgsKwargs(Model):
 
         return sig.bind(*self.args, **self.kwargs)
 
-
-class Ident(Lens[A, ArgsKwargs]):
+class Arguments(Lens[A, ArgsKwargs]):
     def __str_step__(self) -> str:
         return ""
 
@@ -232,6 +244,16 @@ class Ident(Lens[A, ArgsKwargs]):
     def set(self, obj: A, val: A) -> A:
         return val
 
+
+class Ident(Lens[A, B]):
+    def __str_step__(self) -> str:
+        return "arg"
+
+    def get(self, *args, **kwargs) -> B:
+        return self._get_only_input(args, kwargs)
+
+    def set(self, obj: A, val: B) -> A:
+        return val
 
 class Kwargs(Lens[A, Dict[str, B]]):
     key_class: TypeLike = str
@@ -271,9 +293,8 @@ class Seq(Lens[A, B]):
         return sum(map(len, self.steps))
 
     def __str__(self) -> str:
-        return "".join(
-            map(lambda x: x.__str_step__(), self.steps))
-    
+        return "".join(map(lambda x: x.__str_step__(), self.steps))
+
     def __str_step__(self) -> str:
         return str(self)
 
@@ -294,20 +315,13 @@ class Seq(Lens[A, B]):
             return val
         else:
             old_obj = steps[0].get(obj)
-            new_obj = Seq._set(
-                steps[1:],
-                obj=old_obj,
-                val=val
-            )
+            new_obj = Seq._set(steps[1:], obj=old_obj, val=val)
             if id(old_obj) != id(new_obj):
-                # Only set if a different object was returned. 
-                return steps[0].set(
-                    obj=obj,
-                    val=new_obj
-                )
+                # Only set if a different object was returned.
+                return steps[0].set(obj=obj, val=new_obj)
             else:
                 return obj
-            
+
     def set(self, obj: A, val: B) -> A:
         return Seq._set(self.steps, obj, val)
 
@@ -352,13 +366,28 @@ class Item(Lens[A, B], Generic[A, B, T]):
 
 
 class Kwarg(Item[Dict[str, B], B, str]):
-    pass
+    key_class: TypeLike = str
 
-class Arg(Item[Tuple[B, ...], B, int]):
-    pass
 
-class SequenceIndex(Item[Sequence[B], B, int]):
-    obj_class: TypeLike = Sequence[B]
+class SequenceElement(Item[Sequence[B], B, int]):
+    key_class: TypeLike = int
+
+
+class SequenceIndex(Item[Sequence[T], int, int]):
+    obj_class: TypeLike = Sequence[T]
+    key_class: TypeLike = int
+
+    def get(self, *args, **kwargs) -> B:
+        return self.item
+
+    def set(self, obj: A, val: B) -> A:
+        self._assert_key(val)
+        self._assert_obj(obj)
+
+        obj[val] = obj[self.item]
+        obj = obj[0:self.item] + obj[self.item + 1:]
+
+        return obj
 
 
 class _Slice(pydantic.BaseModel):
@@ -400,6 +429,7 @@ class MappingKey(Item[Mapping[A, B], B, A]):
         return self.item
 
     def set(self, obj: Mapping[A, B], val: A) -> Mapping[A, B]:
+        self._assert_key(val)
         obj[val] = obj.pop(self.item)
         return obj
 
@@ -458,18 +488,14 @@ class Unop(Expr[A, C], Generic[A, B, C]):
         return self.unop(lhs_val)
 
 
-# Expr.update_forward_refs()
-# Add.update_forward_refs()
-# Literal.update_forward_refs()
-# Lens.update_forward_refs()
-# Id.update_forward_refs()
-# Attr.update_forward_refs()
-# Seq.update_forward_refs()
-
-argskwargs = Ident()
 lens = Ident()
+ident = lens
+arg = lens
+
 args = Args()
 kwargs = Kwargs()
-arg = args[0]
+argskwargs = Arguments()
+arguments = argskwargs
+all = argskwargs
 
-__all__ = ["argskwargs", "args", "kwargs", "arg", "Lens", "lens"]
+__all__ = ["argskwargs", "args", "kwargs", "arg", "Lens", "lens", "ArgsKwargs", "arguments", "all"]

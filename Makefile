@@ -47,6 +47,6 @@ run-precommit:
 clean:
 	git clean --dry-run -fxd
 
-# Usage: TOKEN=... make upload
-upload: build
-	poetry run twine upload -r testpypi --skip-existing -u __token__ -p $(TOKEN) dist/*
+# Setup with ~/.pypirc
+upload: dist
+	poetry run twine upload -r pypi --skip-existing -u __token__ dist/*
