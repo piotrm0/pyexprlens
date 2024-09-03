@@ -53,6 +53,8 @@ def _make_binop(imp, sym):
             return Binop(lhs=self, rhs=other, binop=imp)
         else:
             return Binop(lhs=self, rhs=Literal(val=other), binop=imp)
+        
+    func.imp = imp
 
     return func
 
@@ -62,6 +64,8 @@ def _make_unop(imp, sym):
 
     def func(self):
         return Unop(lhs=self, unop=imp)
+
+    func.imp = imp
 
     return func
 
@@ -74,6 +78,10 @@ class Model(pydantic.BaseModel):
 class Lens(abc.ABC, Model, Generic[A, B]):
     obj_class: Optional[TypeLike] = pydantic.Field(None)
     key_class: Optional[TypeLike] = pydantic.Field(None)
+
+    @property
+    def pyast(self) -> ast.Expr:
+        return ast.parse(str(self), mode="eval")
 
     def _assert_obj(self, obj: A) -> None:
         if self.obj_class is not None:
@@ -101,8 +109,140 @@ class Lens(abc.ABC, Model, Generic[A, B]):
                     })
 
     @staticmethod
+    def _binop(node: ast.Node) -> Callable:
+        if isinstance(node, ast.Add):
+            return Lens.__add__.imp
+        elif isinstance(node, ast.Sub):
+            return Lens.__sub__.imp
+        elif isinstance(node, ast.Mult):
+            return Lens.__mul__.imp
+        elif isinstance(node, ast.Div):
+            return Lens.__truediv__.imp
+        elif isinstance(node, ast.Mod):
+            return Lens.__mod__.imp
+        elif isinstance(node, ast.Pow):
+            return Lens.__pow__.imp
+        elif isinstance(node, ast.LShift):
+            return Lens.__lshift__.imp
+        elif isinstance(node, ast.RShift):
+            return Lens.__rshift__.imp
+        elif isinstance(node, ast.BitOr):
+            return Lens.__or__.imp
+        elif isinstance(node, ast.BitXor):
+            return Lens.__xor__.imp
+        elif isinstance(node, ast.BitAnd):
+            return Lens.__and__.imp
+        elif isinstance(node, ast.FloorDiv):
+            return Lens.__floordiv__.imp
+        elif isinstance(node, ast.MatMult):
+            return Lens.__matmul__.imp
+        else:
+            raise ValueError(f"Unsupported binop: {type(node).__name__}")
+
+    @staticmethod
+    def _boolop(node: ast.Node) -> Callable:
+        if isinstance(node, ast.And):
+            return Lens.__conjunction__.imp
+        elif isinstance(node, ast.Or):
+            return Lens.__disjunction__.imp
+        else:
+            raise ValueError(f"Unsupported boolop: {type(node).__name__}")
+
+    @staticmethod
+    def _unop(node: ast.Node) -> Callable:
+        if isinstance(node, ast.UAdd):
+            return Lens.__pos__.imp
+        elif isinstance(node, ast.USub):
+            return Lens.__neg__.imp
+        elif isinstance(node, ast.Invert):
+            return Lens.__invert__.imp
+        elif isinstance(node, ast.Not):
+            return Lens.__negation__.imp
+        else:
+            raise ValueError(f"Unsupported unop: {type(node).__name__}")
+
+    @staticmethod
     def of_expr(expr: Union[str, ast.Expr]) -> Lens[A, B]:
-        pass
+        if isinstance(expr, str):
+            exp = ast.parse(expr, mode="eval")
+        else:
+            exp = expr
+
+        if isinstance(exp, ast.Attribute):
+            sublens = Lens.of_expr(exp.value)
+            attr_name = exp.attr
+            return sublens[Attr(attr=attr_name)]
+
+        elif isinstance(exp, ast.Constant):
+            val = exp.value
+            return Literal(val=val)
+
+        elif isinstance(exp, ast.BinOp):
+            lhs = Lens.of_expr(exp.left)
+            rhs = Lens.of_expr(exp.right)
+            return Binop(lhs=lhs, rhs=rhs, binop=Lens._binop(exp.op))
+        
+        elif isinstance(exp, ast.UnaryOp):
+            lhs = Lens.of_expr(exp.operand)
+            return Unop(lhs=lhs, unop=Lens._unop(exp.op))
+        
+        elif isinstance(exp, ast.BoolOp):
+            lhs = Lens.of_expr(exp.values[0])
+            rhs = Lens.of_expr(exp.values[1])
+            return Binop(lhs=lhs, rhs=rhs, binop=Lens._boolop(exp.op))
+
+        elif isinstance(exp, ast.Subscript):
+            sublens = Lens.of_expr(exp.value)
+
+            sub = exp.slice
+
+            if isinstance(sub, ast.Index):
+                step = Item(item=sub.value)
+
+            elif isinstance(sub, ast.Slice):
+                vals_indices: Tuple[Union[None, int], ...] = tuple(
+                    None if e is None else e.value.index for e in [sub.lower, sub.upper, sub.step]
+                )
+                step = Item(item=slice(*vals_indices))
+
+            elif isinstance(sub, ast.Constant):
+                step = Item(item=sub.value)
+
+            else:
+                raise ValueError(f"Unsupported subscript type: {type(sub).__name__}")
+
+            return sublens[step]
+
+        elif isinstance(exp, ast.Name):
+            id = exp.id
+            if id in ["arg", "ident", "lens"]:
+                return Ident()
+            elif id in ["args"]:
+                return Args()
+            elif id in ["kwargs"]:
+                return Kwargs()
+            elif id in ["argskwargs", "all", "arguments"]:
+                return Arguments()
+            else:
+                raise ValueError(f"Unsupported base name: {id}")
+
+        else:
+            raise ValueError(f"Unsupported expression type: {type(exp).__name__}")
+
+    @staticmethod
+    def of_string(s: str) -> Lens[A, B]:
+        """Python expression to Lens."""
+
+        if len(s) == 0:
+            return Lens()
+
+        exp = ast.parse(s, mode="eval")
+
+        if not isinstance(exp, ast.Expression):
+            raise TypeError(f"Expected expression, got {type(exp).__name__}.")
+
+        exp = exp.body
+        return Lens.of_expr(exp)
 
     def each(self, *args, **kwargs) -> Iterable[B]:
         return iter([self.get(*args, **kwargs)])
@@ -117,8 +257,7 @@ class Lens(abc.ABC, Model, Generic[A, B]):
         return self.__str_step__()
 
     def __str_step__(self) -> str:
-        raise NotImplementedError(
-            f"Step str not implemented for {self.__class__.__name__}.")
+        return "lens"
 
     def __call__(self, *args, **kwargs) -> B:
         return self.get(*args, **kwargs)
@@ -176,6 +315,23 @@ class Lens(abc.ABC, Model, Generic[A, B]):
     __abs__ = _make_unop(lambda a: abs(a), "abs")
     __invert__ = _make_unop(lambda a: ~a, "~")
 
+    # Not standard:
+    __conjunction__ = _make_binop(lambda a, b: a and b, "and")
+    __disjunction__ = _make_binop(lambda a, b: a or b, "or")
+    __negation__ = _make_unop(lambda a: not a, "not")
+
+    @staticmethod
+    def conjunction(lens1, lens2) -> Lens:
+        return Binop(lhs=lens1, rhs=lens2, binop=Lens.__conjunction__.imp)
+    
+    @staticmethod
+    def disjunction(lens1, lens2) -> Lens:
+        return Binop(lhs=lens1, rhs=lens2, binop=Lens.__disjunction__.imp)
+    
+    @staticmethod
+    def negation(lens1) -> Lens:
+        return Unop(lhs=lens1, unop=Lens.__negation__.imp)
+
     def __getitem__(self: Lens[A, B], item: Union[slice, str, int,
                                                   Lens]) -> Lens[A, C]:
 
@@ -195,8 +351,8 @@ class Lens(abc.ABC, Model, Generic[A, B]):
             else:
                 raise ValueError(f"Unsupported item type: {type(item)}")
 
-        if isinstance(self, Ident):
-            return outer
+        #if isinstance(self, Ident):
+        #    return outer
         if isinstance(outer, Ident):
             return self
 
@@ -236,7 +392,7 @@ class ArgsKwargs(Model):
 
 class Arguments(Lens[A, ArgsKwargs]):
     def __str_step__(self) -> str:
-        return ""
+        return "argskwargs"
 
     def get(self, *args, **kwargs) -> ArgsKwargs:
         return ArgsKwargs(args=args, kwargs=kwargs)
@@ -247,7 +403,7 @@ class Arguments(Lens[A, ArgsKwargs]):
 
 class Ident(Lens[A, B]):
     def __str_step__(self) -> str:
-        return "arg"
+        return "lens"
 
     def get(self, *args, **kwargs) -> B:
         return self._get_only_input(args, kwargs)
