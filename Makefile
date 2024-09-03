@@ -1,6 +1,9 @@
 dist: LICENSE Makefile README.md pyproject.toml src
 	poetry build
 
+build:
+	poetry build
+
 env:
 	poetry install
 
