@@ -18,10 +18,26 @@ This package has very specific goals which are not considerations in the theory 
 
 
 ```python
-from exprlens import arg
+# Basic identity lens can be imported as "_", "arg", or "ident":
+from exprlens import _
 
+# Lenses implement call:
+assert _(42) == 42
+
+assert (_+1)(1) == 2
+
+assert (_[0]+_[1])([1,2]) == 3
+
+# Lenses can alternatives to lambdas:
+assert list(map(_+1, [1,2,3])) == [2,3,4]
+```
+
+## Get and set
+
+
+```python
 # Lens for getting the first item in the first argument from a call:
-first = arg[0]
+first = _[0]
 
 # Getter can be accessed using the `get` method or by calling (`__call__`):
 assert first.get([0, 1, 2, 3]) == first([0, 1, 2, 3]) == 0
@@ -34,35 +50,54 @@ assert first.set([0, 1, 2, 3], val=42) == [42, 1, 2, 3]
 
 
 ```python
-from exprlens import arg, kwargs, args, argskwargs, ArgsKwargs, ident, lens, arguments, all
+from exprlens import (
+    arg,
+    kwargs,
+    _,
+    args,
+    argskwargs,
+    ArgsKwargs,
+    ident,
+    lens,
+    arguments,
+    all,
+)
 
 # All positional arguments:
-assert args.get(42) == (42, )
+assert args.get(42) == (42,)
 
 # All keyword arguments:
-assert kwargs.get(hello="there") == {'hello': 'there'}
+assert kwargs.get(hello="there") == {"hello": "there"}
 
 # All arguments, stored as `ArgsKwargs` object:
-assert argskwargs.get(42, hello="there") \
-    == ArgsKwargs(args=(42,), kwargs={'hello': 'there'})
+assert argskwargs.get(42, hello="there") == ArgsKwargs(
+    args=(42,), kwargs={"hello": "there"}
+)
 
-# argskwargs, arguments, and all are aliases.
-assert argskwargs is arguments is all
+# argskwargs, arguments, and all are aliases with different representations:
+assert type(argskwargs) is type(arguments) is type(all)
 
 # Only positional or keyword argument:
 assert arg.get(42) == 42
-assert arg.get(hello="there") == 'there'
+assert arg.get(hello="there") == "there"
 # arg.get(1,2) # error if more than one argument is given
 
-# lens, argm and ident are aliases.
-assert arg is ident is lens
+# lens, arg, ident, and "_" are aliases with different representations:
+assert type(arg) is type(ident) is type(lens) is type(_)
 ```
 
 ## Lense iterators
 
 
 ```python
-from exprlens.valid import ValidDict, ValidMapping, ValidTuple, ValidList, ValidSequence, ValidJSON
+from exprlens.valid import (
+    ValidDict,
+    ValidMapping,
+    ValidTuple,
+    ValidList,
+    ValidSequence,
+    ValidJSON,
+)
 
 seq = [1, 2, 3, 4]
 # Lenses for each element in a sequence:
@@ -88,26 +123,26 @@ assert index_lenses[2].get(seq) == 2
 assert index_lenses[1].set(seq, val=3) == [1, 3, 2]
 
 # Values in a mapping:
-mapping = {'a': 1, 'b': 2}
+mapping = {"a": 1, "b": 2}
 value_lenses = list(ValidMapping.values(mapping))
 assert value_lenses[0].get(mapping) == 1
 assert value_lenses[1].get(mapping) == 2
 
 # Values can be set:
 # Set the value of key 'a' to 42:
-assert value_lenses[0].set(mapping, val=42) == {'a': 42, 'b': 2}
+assert value_lenses[0].set(mapping, val=42) == {"a": 42, "b": 2}
 
 # Keys in a mapping:
 key_lenses = list(ValidMapping.keys(mapping))
-assert key_lenses[0].get(mapping) == 'a'
-assert key_lenses[1].get(mapping) == 'b'
+assert key_lenses[0].get(mapping) == "a"
+assert key_lenses[1].get(mapping) == "b"
 
 # Keys can be set:
 # Key 'a' to 'c' thus renaming the key:
-assert key_lenses[0].set(mapping, val='c') == {'c': 42, 'b': 2}
+assert key_lenses[0].set(mapping, val="c") == {"c": 42, "b": 2}
 
 # JSON-like objects:
-obj = {'baseint': 1, 'seqofints': [1, 2, 3], 'seqofstrs': ['a', 'b', 'c']}
+obj = {"baseint": 1, "seqofints": [1, 2, 3], "seqofstrs": ["a", "b", "c"]}
 
 # Get all lenses to JSON values including sequences and dictionaries:
 for l in ValidJSON.all_values(obj):
@@ -183,24 +218,21 @@ from exprlens import Lens, lens
 # Conjunction:
 both = Lens.of_string("lens[0] and lens[1]")
 
-assert Lens.conjunction(lens[0], lens[1]) \
-    == both
+assert Lens.conjunction(lens[0], lens[1]) == both
 
 assert both([1, 2, 3, 4]) == 2
 
 # Disjunction:
 either = Lens.of_string("lens[0] or lens[1]")
 
-assert Lens.disjunction(lens[0], lens[1]) \
-    == either
+assert Lens.disjunction(lens[0], lens[1]) == either
 
 assert either([1, 2, 3, 4]) == 1
 
 # Logical negation:
 not_second = Lens.of_string("not lens[1]")
 
-assert Lens.negation(lens[1]) \
-    == not_second
+assert Lens.negation(lens[1]) == not_second
 
 assert not_second([1, 2, 3, 4]) == False
 ```
@@ -209,12 +241,12 @@ assert not_second([1, 2, 3, 4]) == False
 
 
 ```python
-from exprlens import Expr, Lens, arg
-from ast import parse
+from exprlens import Lens, arg
+from ast import parse, dump
 
 plusone = arg + 1
-assert repr(plusone) == "(lens + 1)"
+assert repr(plusone) == "(arg + 1)"
 
-# assert plusone.pyast == parse(str(plusone), mode="eval")
+assert dump(plusone.pyast) == dump(parse(str(plusone), mode="eval"))
 assert plusone == Lens.of_string(str(plusone))
 ```
