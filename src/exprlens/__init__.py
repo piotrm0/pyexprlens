@@ -3,6 +3,7 @@ from .lens import Attr
 from .lens import Binop
 from .lens import Expr
 from .lens import Ident
+from .lens import _
 from .lens import Lens
 from .lens import Literal
 from .lens import MappingKey
@@ -33,7 +34,7 @@ __all__ = [
     "ValidTuple",
     "ValidSequence",
 
-    # Common lenses
+    # Common lenses. "_" is intentionally not included.
     "all",
     "lens",
     "ident",

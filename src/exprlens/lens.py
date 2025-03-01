@@ -33,19 +33,9 @@ K = TypeVar("K")
 V = TypeVar("V")
 
 TypeLike = Any
-"""
-# having trouble with this to catch Sequence, Mapping, etc.
-typing.Union[
-    Type,
-    typing.TypeAlias,
-    typing.GenericAlias
-]
-"""
-
-LENS_SYMBOL = "@"
 
 
-def _make_binop(imp, sym):
+def _make_binop(imp: Callable, sym: str):
     imp.__symbol__ = sym
 
     def func(self, other):
@@ -53,13 +43,13 @@ def _make_binop(imp, sym):
             return Binop(lhs=self, rhs=other, binop=imp)
         else:
             return Binop(lhs=self, rhs=Literal(val=other), binop=imp)
-        
+
     func.imp = imp
 
     return func
 
 
-def _make_unop(imp, sym):
+def _make_unop(imp: Callable, sym: str):
     imp.__symbol__ = sym
 
     def func(self):
@@ -72,10 +62,13 @@ def _make_unop(imp, sym):
 
 class Model(pydantic.BaseModel):
     model_config: ClassVar[pydantic.ConfigDict] = pydantic.ConfigDict(
-        arbitrary_types_allowed=True)
+        arbitrary_types_allowed=True
+    )
 
 
 class Lens(abc.ABC, Model, Generic[A, B]):
+    name: str = "lens"
+
     obj_class: Optional[TypeLike] = pydantic.Field(None)
     key_class: Optional[TypeLike] = pydantic.Field(None)
 
@@ -102,11 +95,11 @@ class Lens(abc.ABC, Model, Generic[A, B]):
                 ) from e
 
     def validated(self, obj_class: type) -> type:
-        return type(self.__class__.__name__ + "Validated", (self.__class__, ),
-                    {
-                        "obj_class": obj_class,
-                        **self.model_dump()
-                    })
+        return type(
+            self.__class__.__name__ + "Validated",
+            (self.__class__,),
+            {"obj_class": obj_class, **self.model_dump()},
+        )
 
     @staticmethod
     def _binop(node: ast.Node) -> Callable:
@@ -181,11 +174,11 @@ class Lens(abc.ABC, Model, Generic[A, B]):
             lhs = Lens.of_expr(exp.left)
             rhs = Lens.of_expr(exp.right)
             return Binop(lhs=lhs, rhs=rhs, binop=Lens._binop(exp.op))
-        
+
         elif isinstance(exp, ast.UnaryOp):
             lhs = Lens.of_expr(exp.operand)
             return Unop(lhs=lhs, unop=Lens._unop(exp.op))
-        
+
         elif isinstance(exp, ast.BoolOp):
             lhs = Lens.of_expr(exp.values[0])
             rhs = Lens.of_expr(exp.values[1])
@@ -201,7 +194,8 @@ class Lens(abc.ABC, Model, Generic[A, B]):
 
             elif isinstance(sub, ast.Slice):
                 vals_indices: Tuple[Union[None, int], ...] = tuple(
-                    None if e is None else e.value.index for e in [sub.lower, sub.upper, sub.step]
+                    None if e is None else e.value.index
+                    for e in [sub.lower, sub.upper, sub.step]
                 )
                 step = Item(item=slice(*vals_indices))
 
@@ -209,7 +203,9 @@ class Lens(abc.ABC, Model, Generic[A, B]):
                 step = Item(item=sub.value)
 
             else:
-                raise ValueError(f"Unsupported subscript type: {type(sub).__name__}")
+                raise ValueError(
+                    f"Unsupported subscript type: {type(sub).__name__}"
+                )
 
             return sublens[step]
 
@@ -227,7 +223,9 @@ class Lens(abc.ABC, Model, Generic[A, B]):
                 raise ValueError(f"Unsupported base name: {id}")
 
         else:
-            raise ValueError(f"Unsupported expression type: {type(exp).__name__}")
+            raise ValueError(
+                f"Unsupported expression type: {type(exp).__name__}"
+            )
 
     @staticmethod
     def of_string(s: str) -> Lens[A, B]:
@@ -257,7 +255,7 @@ class Lens(abc.ABC, Model, Generic[A, B]):
         return self.__str_step__()
 
     def __str_step__(self) -> str:
-        return "lens"
+        return self.name
 
     def __call__(self, *args, **kwargs) -> B:
         return self.get(*args, **kwargs)
@@ -269,15 +267,19 @@ class Lens(abc.ABC, Model, Generic[A, B]):
         if len(args) == 0 and len(kwargs) == 1:
             return next(iter(kwargs.values()))
 
-        raise ValueError(f"Ambiguous get from {len(args)} arg(s) and {len(kwargs)} kwarg(s).")
+        raise ValueError(
+            f"Ambiguous get from {len(args)} arg(s) and {len(kwargs)} kwarg(s)."
+        )
 
     def get(self, *args, **kwargs) -> B:
         raise NotImplementedError(
-            f"Get not implemented for {self.__class__.__name__}.")
+            f"Get not implemented for {self.__class__.__name__}."
+        )
 
     def set(self, *args, val: B, **kwargs) -> A:
         raise NotImplementedError(
-            f"Set not implemented for {self.__class__.__name__}.")
+            f"Set not implemented for {self.__class__.__name__}."
+        )
 
     def replace(self, *args, val: B, **kwargs) -> A:
         obj = self._get_only_input(args, kwargs)
@@ -323,18 +325,18 @@ class Lens(abc.ABC, Model, Generic[A, B]):
     @staticmethod
     def conjunction(lens1, lens2) -> Lens:
         return Binop(lhs=lens1, rhs=lens2, binop=Lens.__conjunction__.imp)
-    
+
     @staticmethod
     def disjunction(lens1, lens2) -> Lens:
         return Binop(lhs=lens1, rhs=lens2, binop=Lens.__disjunction__.imp)
-    
+
     @staticmethod
     def negation(lens1) -> Lens:
         return Unop(lhs=lens1, unop=Lens.__negation__.imp)
 
-    def __getitem__(self: Lens[A, B], item: Union[slice, str, int,
-                                                  Lens]) -> Lens[A, C]:
-
+    def __getitem__(
+        self: Lens[A, B], item: Union[slice, str, int, Lens]
+    ) -> Lens[A, C]:
         if isinstance(item, Lens):
             outer = item
 
@@ -351,8 +353,6 @@ class Lens(abc.ABC, Model, Generic[A, B]):
             else:
                 raise ValueError(f"Unsupported item type: {type(item)}")
 
-        #if isinstance(self, Ident):
-        #    return outer
         if isinstance(outer, Ident):
             return self
 
@@ -383,16 +383,16 @@ class ArgsKwargs(Model):
     kwargs: Dict[str, Any]
 
     def bind_onto(
-            self, sig: Union[Callable,
-                             inspect.Signature]) -> inspect.BoundArguments:
+        self, sig: Union[Callable, inspect.Signature]
+    ) -> inspect.BoundArguments:
         if not isinstance(sig, inspect.Signature):
             sig = inspect.signature(sig)
 
         return sig.bind(*self.args, **self.kwargs)
 
+
 class Arguments(Lens[A, ArgsKwargs]):
-    def __str_step__(self) -> str:
-        return "argskwargs"
+    name: str = "argskwargs"
 
     def get(self, *args, **kwargs) -> ArgsKwargs:
         return ArgsKwargs(args=args, kwargs=kwargs)
@@ -402,8 +402,7 @@ class Arguments(Lens[A, ArgsKwargs]):
 
 
 class Ident(Lens[A, B]):
-    def __str_step__(self) -> str:
-        return "lens"
+    name: str = "ident"
 
     def get(self, *args, **kwargs) -> B:
         return self._get_only_input(args, kwargs)
@@ -411,21 +410,20 @@ class Ident(Lens[A, B]):
     def set(self, obj: A, val: B) -> A:
         return val
 
-class Kwargs(Lens[A, Dict[str, B]]):
-    key_class: TypeLike = str
 
-    def __str_step__(self) -> str:
-        return "kwargs"
+class Kwargs(Lens[A, Dict[str, B]]):
+    name: str = "kwargs"
+
+    key_class: TypeLike = str
 
     def get(self, *args, **kwargs) -> Dict[str, B]:
         return kwargs
 
 
 class Args(Lens[A, Tuple[B, ...]]):
-    key_class: TypeLike = int
+    name: str = "args"
 
-    def __str_step__(self) -> str:
-        return "args"
+    key_class: TypeLike = int
 
     def get(self, *args, **kwargs) -> Tuple[B, ...]:
         return args
@@ -541,12 +539,12 @@ class SequenceIndex(Item[Sequence[T], int, int]):
         self._assert_obj(obj)
 
         obj[val] = obj[self.item]
-        obj = obj[0:self.item] + obj[self.item + 1:]
+        obj = obj[0 : self.item] + obj[self.item + 1 :]
 
         return obj
 
 
-class _Slice(pydantic.BaseModel):
+class _Slice(Model):
     start: Optional[int] = None
     stop: Optional[int] = None
     step: Optional[int] = None
@@ -591,7 +589,6 @@ class MappingKey(Item[Mapping[A, B], B, A]):
 
 
 class Expr(Lens[A, B]):
-
     def __str__(self) -> str:
         return self.__str_step__()
 
@@ -644,14 +641,27 @@ class Unop(Expr[A, C], Generic[A, B, C]):
         return self.unop(lhs_val)
 
 
-lens = Ident()
-ident = lens
-arg = lens
+lens = Ident(name="lens")
+ident = Ident(name="ident")
+arg = Ident(name="arg")
+_ = Ident(name="_")
 
 args = Args()
 kwargs = Kwargs()
-argskwargs = Arguments()
-arguments = argskwargs
-all = argskwargs
+argskwargs = Arguments(name="argskwargs")
+arguments = Arguments(name="arguments")
+all = Arguments(name="all")
 
-__all__ = ["argskwargs", "args", "kwargs", "arg", "Lens", "lens", "ArgsKwargs", "arguments", "all"]
+__all__ = [
+    # Intentionally not exported "_" to avoid accidents with use of _ as an
+    # unused variable in python.
+    "argskwargs",
+    "args",
+    "kwargs",
+    "arg",
+    "Lens",
+    "lens",
+    "ArgsKwargs",
+    "arguments",
+    "all",
+]
